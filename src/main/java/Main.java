@@ -137,7 +137,8 @@ public class Main {
                     int c = 0;
                     for (String parameter : parameterValues) {
                         String targetType = template.parameterDict.get(c);
-
+                        c++;
+                        
                         if(targetType.isEmpty())
                             continue;
 
@@ -147,8 +148,6 @@ public class Main {
                         Individual instance = createIndividual(dataModel, parameter.replaceAll("[\\[\\.\\]\\s]", "_"), dataModel.getOntClass(NS + targetType) );
                         ObjectProperty property = dataModel.getObjectProperty( NS + "connected" + targetType );
                         lineInstance.addProperty(property, instance);
-
-                        c++;
                     }
                 }
             }
