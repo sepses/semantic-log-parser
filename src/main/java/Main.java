@@ -174,8 +174,8 @@ public class Main {
                     int c = 0;
                     for (String parameter : parameterValues) {
                         String targetType = template.parameterDict.get(c);
-
-                        if (targetType.isEmpty())
+                        c++;
+                        if(targetType.isEmpty())
                             continue;
 
                         LOG.info(String.format("Found: %s of Type %s", parameter, targetType));
@@ -184,8 +184,6 @@ public class Main {
                                 .createIndividual(NS_INSTANCE + parameter.replaceAll("[\\[\\.\\]\\s]", "_"));
                         ObjectProperty property = dataModel.createObjectProperty(NS + "connected" + targetType);
                         lineInstance.addProperty(property, instance);
-
-                        c++;
                     }
                 }
             }
