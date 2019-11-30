@@ -3,20 +3,25 @@ import org.apache.commons.csv.CSVRecord;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.jena.ontology.*;
 import org.apache.jena.rdf.model.ModelFactory;
+import org.apache.jena.rdf.model.Statement;
+import org.apache.jena.rdf.model.StmtIterator;
 import org.apache.jena.riot.Lang;
 import org.apache.jena.riot.RDFDataMgr;
+import org.apache.jena.util.iterator.ExtendedIterator;
 import org.apache.jena.vocabulary.RDFS;
 import org.joda.time.DateTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.*;
+import java.lang.reflect.Parameter;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -46,20 +51,15 @@ public class Main {
      * @throws IOException
      */
     public static void main(String[] args) throws IOException {
-
         List<EntityPattern> patterns = new ArrayList<>();
 
         // check against parameters within parameter lists
-        patterns.add(
-                new EntityPattern("URL", "connectedURL", true, Pattern.compile(regexURL), EnumPatternType.Parameter));
-        patterns.add(new EntityPattern("Host", "connectedHost", true, Pattern.compile(regexHost),
-                EnumPatternType.Parameter));
-        patterns.add(new EntityPattern("Domain", "connectedDomain", true, Pattern.compile(regexDomain),
-                EnumPatternType.Parameter));
+        patterns.add(new EntityPattern("URL", "connectedURL", true, Pattern.compile(regexURL), EnumPatternType.Parameter));
+        patterns.add(new EntityPattern("Host", "connectedHost", true, Pattern.compile(regexHost),EnumPatternType.Parameter));
+        patterns.add(new EntityPattern("Domain", "connectedDomain", true, Pattern.compile(regexDomain),EnumPatternType.Parameter));
 
         // check against the entire log lines (context from parameter surroundings are needed)
-        patterns.add(new EntityPattern("User", "connectedUser", true, Pattern.compile(regexUser),
-                EnumPatternType.LogLine));
+        patterns.add(new EntityPattern("User", "connectedUser", true, Pattern.compile(regexUser),EnumPatternType.LogLine));
         patterns.add(new EntityPattern("Port", "port", false, Pattern.compile(regexPort), EnumPatternType.LogLine));
 
         Reader templateReader = new FileReader(Paths.get(logTemplate).toFile());
@@ -71,15 +71,47 @@ public class Main {
         List<LogLine> logLineList = new ArrayList<>();
         logLines.forEach(logLine -> logLineList.add(LogLine.fromOpenSSH(logLine)));
 
-        // get all templates plus occurrences of patterns plus properties
-        List<Template> templatesList = annotateTemplates(patterns, templates, logLineList);
-
         OntModel dataModel = ModelFactory.createOntologyModel(OntModelSpec.OWL_DL_MEM);
         InputStream is = Main.class.getClassLoader().getResourceAsStream("parser.ttl");
         RDFDataMgr.read(dataModel, is, Lang.TURTLE);
 
-        parseLogLines(logLineList, templatesList, dataModel);
+        List<Template> templatesList = new ArrayList<>();
 
+        // load existing templates
+        OntClass extractedTemplateClass = dataModel.createClass(NS_PARSER + "ExtractedTemplate");
+        OntClass extractedParamterClass = dataModel.createClass(NS_PARSER + "ExtractedParameter");
+
+        DatatypeProperty contentProperty = dataModel.createDatatypeProperty(NS_PARSER + "content");
+        DatatypeProperty hashProperty = dataModel.createDatatypeProperty(NS_PARSER + "hash");
+        ObjectProperty hasParameterProperty = dataModel.createObjectProperty(NS_PARSER + "hasParameter");
+        DatatypeProperty positionProperty = dataModel.createDatatypeProperty(NS_PARSER + "position");
+        DatatypeProperty typeProperty = dataModel.createDatatypeProperty(NS_PARSER + "type");
+        AnnotationProperty subjectProperty = dataModel.getAnnotationProperty("http://purl.org/dc/elements/1.1/subject");
+
+
+        ExtendedIterator templateIndividuals = extractedTemplateClass.listInstances();
+        while (templateIndividuals.hasNext())
+        {
+            Individual templateIndividual = (Individual) templateIndividuals.next();
+            Template template = new Template(templateIndividual.getProperty(hashProperty).toString(), templateIndividual.getProperty(contentProperty).toString());
+            templatesList.add(template);
+
+            StmtIterator hasChildStatementIterator = templateIndividual.listProperties(hasParameterProperty);
+            while (hasChildStatementIterator.hasNext()) {
+                Statement hasChildStatement = hasChildStatementIterator.next();
+                System.out.println(hasChildStatement.getProperty(positionProperty));
+            }
+
+        }
+
+        // get all templates plus occurrences of patterns plus properties
+        try {
+            annotateTemplates(patterns, templates, logLineList, dataModel, templatesList);
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        }
+
+        parseLogLines(logLineList, templatesList, dataModel);
     }
 
     /**
@@ -89,17 +121,16 @@ public class Main {
      * @param patterns
      * @param csvTemplates
      * @param logLineList
+     * @param templatesList
      * @return
      */
-    private static List<Template> annotateTemplates(List<EntityPattern> patterns, Iterable<CSVRecord> csvTemplates,
-            List<LogLine> logLineList) {
+    private static void annotateTemplates(List<EntityPattern> patterns, Iterable<CSVRecord> csvTemplates,
+                                                    List<LogLine> logLineList, OntModel dataModel, List<Template> templatesList) throws NoSuchAlgorithmException {
 
         // Annotate template parameters
-        List<Template> templateList = new ArrayList<>();
         for (CSVRecord csvTemplate : csvTemplates) {
 
             Template template = new Template(csvTemplate.get(0), csvTemplate.get(1));
-            templateList.add(template);
 
             for (LogLine logline : logLineList) {
                 // look into logLine that contain certain patterns by EventId=TemplateId
@@ -108,11 +139,53 @@ public class Main {
                     // process template parameters
 
                     processTemplateParameters(patterns, template, logline);
+
+                    // Store templates in ontology if the template does not exist yet
+                    System.out.println(template.TemplateContent);
+                    final MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                    final byte[] hashbytes = digest.digest(template.TemplateContent.getBytes(StandardCharsets.UTF_8));
+                    String hash = new String(hashbytes);
+
+                    if(dataModel.getIndividual(NS_INSTANCE + "Template_" + hash) == null) {
+                        createTemplateInstance(template, hash, dataModel); // add it to the ontology for later
+                        templatesList.add(template); // add it to the in memory list for this run
+                    }
+
                     break; // after finding the first template patterns, don't need to go further
                 }
             }
         }
-        return templateList;
+        //return templateList;
+    }
+
+    private static void createTemplateInstance(Template template, String hash, OntModel dataModel) {
+        OntClass extractedTemplateClass = dataModel.createClass(NS_PARSER + "ExtractedTemplate");
+        OntClass extractedParamterClass = dataModel.createClass(NS_PARSER + "ExtractedParameter");
+
+        DatatypeProperty contentProperty = dataModel.createDatatypeProperty(NS_PARSER + "content");
+        DatatypeProperty hashProperty = dataModel.createDatatypeProperty(NS_PARSER + "hash");
+        ObjectProperty hasParameterProperty = dataModel.createObjectProperty(NS_PARSER + "hasParameter");
+        DatatypeProperty positionProperty = dataModel.createDatatypeProperty(NS_PARSER + "position");
+        DatatypeProperty typeProperty = dataModel.createDatatypeProperty(NS_PARSER + "type");
+        AnnotationProperty subjectProperty = dataModel.getAnnotationProperty("http://purl.org/dc/elements/1.1/subject");
+
+        Individual templateIndividual = extractedTemplateClass.createIndividual(NS_INSTANCE + "Template_" + UUID.randomUUID());
+        templateIndividual.addProperty(subjectProperty, "TestSubject");
+        templateIndividual.addProperty(hashProperty, hash);
+        templateIndividual.addProperty(contentProperty, template.TemplateContent);
+
+        int pos = 0;
+        for(EntityPattern param : template.parameterDict) {
+            Individual paramIndividual = extractedParamterClass.createIndividual(NS_INSTANCE + "Parameter_" + UUID.randomUUID());
+            paramIndividual.addProperty(positionProperty, String.valueOf(pos));
+
+            if(param != null){
+                paramIndividual.addProperty(typeProperty, param.className.toString());
+                templateIndividual.addProperty(hasParameterProperty, paramIndividual);
+            }
+
+            pos++;
+        }
     }
 
     /**
@@ -261,7 +334,11 @@ public class Main {
         DatatypeProperty templateIdProperty = dataModel.createDatatypeProperty(NS_PARSER + "templateId");
         lineInstance.addProperty(templateIdProperty, logline.EventId);
         lineInstance.addProperty(contentProperty, logline.Content);
-        lineInstance.addProperty(dateProperty, getDate(logline.EventMonth, logline.EventDay, logline.EventTime));
+        try {
+            lineInstance.addProperty(dateProperty, getDate(logline.EventMonth, logline.EventDay, logline.EventTime));
+        } catch (ParseException e) {
+            e.printStackTrace();
+        }
         lineInstance.addProperty(levelProperty, logline.Level);
         lineInstance.addLiteral(sequenceProperty, logline.LineId);
 
@@ -280,22 +357,20 @@ public class Main {
      * @param time
      * @return Date
      */
-    private static String getDate(String month, String day, String time) {
+    private static String getDate(String month, String day, String time) throws ParseException {
 
         day = StringUtils.leftPad(day, 2, "0");
-        StringBuilder sb = new StringBuilder();
-        sb.append(DateTime.now().getYear()).append(" ").append(month).append(" ").append(day).append(" ")
-                .append(time);
-        String dateString = sb.toString();
 
-        SimpleDateFormat formatter = new SimpleDateFormat("yyyy MMM dd HH:mm:ss");
+        Calendar cal = Calendar.getInstance();
+        cal.set(Calendar.YEAR, DateTime.now().getYear());
+        cal.set(Calendar.MONTH, new SimpleDateFormat("MMM", Locale.ENGLISH).parse(month).getMonth());
+        cal.set(Calendar.DAY_OF_MONTH, Integer.parseInt(day));
+        Date dateRepresentation = cal.getTime();
+
         SimpleDateFormat xmlDateFormatter = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss");
-        try {
-            Date date = formatter.parse(dateString);
-            dateString = xmlDateFormatter.format(date);
-        } catch (ParseException e) {
-            e.printStackTrace();
-        }
+        String dateString;
+
+        dateString = xmlDateFormatter.format(dateRepresentation);
 
         return dateString;
     }

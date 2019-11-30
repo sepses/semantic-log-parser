@@ -1,23 +1,31 @@
 @prefix : <http://w3id.org/sepses/vocab/log/core#> .
-@prefix parser: <http://w3id.org/sepses/vocab/log/parser#> .
 @prefix dc: <http://purl.org/dc/elements/1.1/> .
 @prefix dct: <http://purl.org/dc/terms/> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix xml: <http://www.w3.org/XML/1998/namespace> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix vann: <http://purl.org/vocab/vann/> .
-@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix parser: <http://w3id.org/sepses/vocab/log/parser#> .
 @base <http://w3id.org/sepses/vocab/log/parser> .
 
 <http://w3id.org/sepses/vocab/log/parser> rdf:type owl:Ontology ;
-                                         dc:creator "SEPSES team" ;
-                                         dc:description "Core + Parser metadata"@en ;
-                                         dc:rights "http://creativecommons.org/licenses/by/4.0/" ;
-                                         dc:title "SEPSES Core Parser Ontology" ;
-                                         dct:created "2019-10-23"^^xsd:date ;
-                                         vann:preferredNamespacePrefix "parser" .
+                                           dc:creator "SEPSES team" ;
+                                           dc:description "Core + Parser metadata"@en ;
+                                           dc:rights "http://creativecommons.org/licenses/by/4.0/" ;
+                                           dc:title "SEPSES Core Parser Ontology" ;
+                                           dct:created "2019-10-23"^^xsd:date ;
+                                           vann:preferredNamespacePrefix "parser" .
+
+#################################################################
+#    Annotation properties
+#################################################################
+
+###  http://purl.org/dc/elements/1.1/subject
+dc:subject rdf:type owl:AnnotationProperty .
+
 
 #################################################################
 #    Object Properties
@@ -32,10 +40,18 @@
                     """ ;
                 rdfs:label "originatesFrom" .
 
-##  http://w3id.org/sepses/vocab/log/file-system#hasUser
+
+###  http://w3id.org/sepses/vocab/log/parser#associatedUser
 parser:associatedUser rdf:type owl:ObjectProperty ;
-         rdfs:domain :LogEntry ;
-         rdfs:range :User .
+                      rdfs:domain :LogEntry ;
+                      rdfs:range :User .
+
+
+###  http://w3id.org/sepses/vocab/log/parser#hasParameter
+parser:hasParameter rdf:type owl:ObjectProperty ;
+                    rdfs:domain parser:ExtractedTemplate ;
+                    rdfs:range parser:ExtractedParameter .
+
 
 #################################################################
 #    Data properties
@@ -48,13 +64,6 @@ parser:associatedUser rdf:type owl:ObjectProperty ;
           rdfs:label "hostName" .
 
 
-###  http://w3id.org/sepses/vocab/log/core#ipAddress
-:ipAddress rdf:type owl:DatatypeProperty ;
-           rdfs:domain :Host ;
-           rdfs:range xsd:string ;
-           rdfs:label "ipAddress" .
-
-
 ###  http://w3id.org/sepses/vocab/log/core#ip4Address
 :ip4Address rdf:type owl:DatatypeProperty ;
             rdfs:subPropertyOf :ipAddress ;
@@ -65,6 +74,13 @@ parser:associatedUser rdf:type owl:ObjectProperty ;
 :ip6Address rdf:type owl:DatatypeProperty ;
             rdfs:subPropertyOf :ipAddress ;
             rdfs:label "ip6Address" .
+
+
+###  http://w3id.org/sepses/vocab/log/core#ipAddress
+:ipAddress rdf:type owl:DatatypeProperty ;
+           rdfs:domain :Host ;
+           rdfs:range xsd:string ;
+           rdfs:label "ipAddress" .
 
 
 ###  http://w3id.org/sepses/vocab/log/core#logFilePath
@@ -101,26 +117,61 @@ parser:associatedUser rdf:type owl:ObjectProperty ;
            rdfs:range xsd:dateTime ;
            rdfs:label "timestamp" .
 
-parser:username rdf:type owl:DatatypeProperty ;
-          rdfs:domain :User ;
-          rdfs:label "username" ;
-          rdfs:range xsd:string .
 
-parser:port rdf:type owl:DatatypeProperty ;
-      rdfs:domain :LogEntry ;
-      rdfs:label "port" ;
-      rdfs:range xsd:string .
+###  http://w3id.org/sepses/vocab/log/parser#content
+parser:content rdf:type owl:DatatypeProperty ,
+                        owl:FunctionalProperty ;
+               rdfs:domain parser:ExtractedTemplate ;
+               rdfs:range xsd:string .
 
+
+###  http://w3id.org/sepses/vocab/log/parser#hash
+parser:hash rdf:type owl:DatatypeProperty ,
+                     owl:FunctionalProperty ;
+            rdfs:domain parser:ExtractedTemplate ;
+            rdfs:range xsd:string .
+
+
+###  http://w3id.org/sepses/vocab/log/parser#level
 parser:level rdf:type owl:DatatypeProperty ;
-       rdfs:domain :LogEntry ;
-       rdfs:label "level" ;
-       rdfs:range xsd:string .
+             rdfs:domain :LogEntry ;
+             rdfs:range xsd:string ;
+             rdfs:label "level" .
 
+
+###  http://w3id.org/sepses/vocab/log/parser#port
+parser:port rdf:type owl:DatatypeProperty ;
+            rdfs:domain :LogEntry ;
+            rdfs:range xsd:string ;
+            rdfs:label "port" .
+
+
+###  http://w3id.org/sepses/vocab/log/parser#position
+parser:position rdf:type owl:DatatypeProperty ,
+                         owl:FunctionalProperty ;
+                rdfs:domain parser:ExtractedParameter ;
+                rdfs:range xsd:integer .
+
+
+###  http://w3id.org/sepses/vocab/log/parser#source
 parser:source rdf:type owl:DatatypeProperty ;
-       rdfs:domain :LogEntry ;
-       rdfs:label "source" ;
-       rdfs:range xsd:string .
-  
+              rdfs:domain :LogEntry ;
+              rdfs:range xsd:string ;
+              rdfs:label "source" .
+
+
+###  http://w3id.org/sepses/vocab/log/parser#type
+parser:type rdf:type owl:DatatypeProperty ,
+                     owl:FunctionalProperty ;
+            rdfs:domain parser:ExtractedParameter ;
+            rdfs:range xsd:string .
+
+
+###  http://w3id.org/sepses/vocab/log/parser#username
+parser:username rdf:type owl:DatatypeProperty ;
+                rdfs:domain :User ;
+                rdfs:range xsd:string ;
+                rdfs:label "username" .
 
 
 #################################################################
@@ -136,12 +187,59 @@ parser:source rdf:type owl:DatatypeProperty ;
 :LogEntry rdf:type owl:Class ;
           rdfs:label "Log Entry" .
 
-parser:User rdf:type owl:Class ;
-  rdfs:subClassOf foaf:Person ;
-  rdfs:label "User" .
 
+###  http://w3id.org/sepses/vocab/log/core#User
+:User rdf:type owl:Class .
+
+
+###  http://w3id.org/sepses/vocab/log/parser#ExtractedParameter
+parser:ExtractedParameter rdf:type owl:Class .
+
+
+###  http://w3id.org/sepses/vocab/log/parser#ExtractedTemplate
+parser:ExtractedTemplate rdf:type owl:Class .
+
+
+###  http://w3id.org/sepses/vocab/log/parser#LogTemplate
 parser:LogTemplate rdf:type owl:Class ;
-  rdfs:label "LogTemplate" .
+                   rdfs:label "LogTemplate" .
+
+
+###  http://w3id.org/sepses/vocab/log/parser#User
+parser:User rdf:type owl:Class ;
+            rdfs:subClassOf foaf:Person ;
+            rdfs:label "User" .
+
+
+###  http://xmlns.com/foaf/0.1/Person
+foaf:Person rdf:type owl:Class .
+
+
+#################################################################
+#    Individuals
+#################################################################
+
+###  http://w3id.org/sepses/vocab/log/parser#Param1
+parser:Param1 rdf:type owl:NamedIndividual ,
+                       parser:ExtractedParameter ;
+              parser:position 1 ;
+              parser:type "IP" .
+
+
+###  http://w3id.org/sepses/vocab/log/parser#Param2
+parser:Param2 rdf:type owl:NamedIndividual ,
+                       parser:ExtractedParameter ;
+              parser:position 2 ;
+              parser:type "User" .
+
+
+###  http://w3id.org/sepses/vocab/log/parser#Template1
+parser:Template1 rdf:type owl:NamedIndividual ,
+                          parser:ExtractedTemplate ;
+                 parser:hasParameter parser:Param1 ,
+                                     parser:Param2 ;
+                 parser:content "line ...." ;
+                 parser:hash "23rf23" .
 
 
 ###  Generated by the OWL API (version 4.5.6.2018-09-06T00:27:41Z) https://github.com/owlcs/owlapi
