@@ -9,6 +9,8 @@ public class Template {
     public String TemplateId;
     public String TemplateContent;
     public List<EntityPattern> parameterDict;
+    public String subject;
+    public String hash;
 
     public Template(String TemplateId, String TemplateContent) {
         this.TemplateId = TemplateId;

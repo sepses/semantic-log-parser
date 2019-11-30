@@ -14,7 +14,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.*;
-import java.lang.reflect.Parameter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
@@ -43,6 +42,9 @@ public class Main {
     // TODO: will be replaced by JAVA args later on
     private static String logTemplate = "./input/OpenSSH_2k.log_templates.csv";
     private static String logData = "./input/OpenSSH_2k.log_structured.csv";
+    private static String parserFilePath = "src/main/resources/parser.ttl";
+
+    private static Map<String, String> templateIdMappings = new HashMap<>();
 
     /**
      * Main function - will be updated later to allow args parameterization
@@ -55,11 +57,11 @@ public class Main {
 
         // check against parameters within parameter lists
         patterns.add(new EntityPattern("URL", "connectedURL", true, Pattern.compile(regexURL), EnumPatternType.Parameter));
-        patterns.add(new EntityPattern("Host", "connectedHost", true, Pattern.compile(regexHost),EnumPatternType.Parameter));
-        patterns.add(new EntityPattern("Domain", "connectedDomain", true, Pattern.compile(regexDomain),EnumPatternType.Parameter));
+        patterns.add(new EntityPattern("Host", "connectedHost", true, Pattern.compile(regexHost), EnumPatternType.Parameter));
+        patterns.add(new EntityPattern("Domain", "connectedDomain", true, Pattern.compile(regexDomain), EnumPatternType.Parameter));
 
         // check against the entire log lines (context from parameter surroundings are needed)
-        patterns.add(new EntityPattern("User", "connectedUser", true, Pattern.compile(regexUser),EnumPatternType.LogLine));
+        patterns.add(new EntityPattern("User", "connectedUser", true, Pattern.compile(regexUser), EnumPatternType.LogLine));
         patterns.add(new EntityPattern("Port", "port", false, Pattern.compile(regexPort), EnumPatternType.LogLine));
 
         Reader templateReader = new FileReader(Paths.get(logTemplate).toFile());
@@ -72,37 +74,13 @@ public class Main {
         logLines.forEach(logLine -> logLineList.add(LogLine.fromOpenSSH(logLine)));
 
         OntModel dataModel = ModelFactory.createOntologyModel(OntModelSpec.OWL_DL_MEM);
-        InputStream is = Main.class.getClassLoader().getResourceAsStream("parser.ttl");
+        InputStream is = Main.class.getClassLoader().getResourceAsStream(parserFilePath.substring(parserFilePath.lastIndexOf("/") + 1));
         RDFDataMgr.read(dataModel, is, Lang.TURTLE);
 
         List<Template> templatesList = new ArrayList<>();
 
         // load existing templates
-        OntClass extractedTemplateClass = dataModel.createClass(NS_PARSER + "ExtractedTemplate");
-        OntClass extractedParamterClass = dataModel.createClass(NS_PARSER + "ExtractedParameter");
-
-        DatatypeProperty contentProperty = dataModel.createDatatypeProperty(NS_PARSER + "content");
-        DatatypeProperty hashProperty = dataModel.createDatatypeProperty(NS_PARSER + "hash");
-        ObjectProperty hasParameterProperty = dataModel.createObjectProperty(NS_PARSER + "hasParameter");
-        DatatypeProperty positionProperty = dataModel.createDatatypeProperty(NS_PARSER + "position");
-        DatatypeProperty typeProperty = dataModel.createDatatypeProperty(NS_PARSER + "type");
-        AnnotationProperty subjectProperty = dataModel.getAnnotationProperty("http://purl.org/dc/elements/1.1/subject");
-
-
-        ExtendedIterator templateIndividuals = extractedTemplateClass.listInstances();
-        while (templateIndividuals.hasNext())
-        {
-            Individual templateIndividual = (Individual) templateIndividuals.next();
-            Template template = new Template(templateIndividual.getProperty(hashProperty).toString(), templateIndividual.getProperty(contentProperty).toString());
-            templatesList.add(template);
-
-            StmtIterator hasChildStatementIterator = templateIndividual.listProperties(hasParameterProperty);
-            while (hasChildStatementIterator.hasNext()) {
-                Statement hasChildStatement = hasChildStatementIterator.next();
-                System.out.println(hasChildStatement.getProperty(positionProperty));
-            }
-
-        }
+        loadExistingTemplates(dataModel, templatesList);
 
         // get all templates plus occurrences of patterns plus properties
         try {
@@ -112,6 +90,84 @@ public class Main {
         }
 
         parseLogLines(logLineList, templatesList, dataModel);
+    }
+
+    private static void loadExistingTemplates(OntModel dataModel, List<Template> templatesList) {
+        OntClass extractedTemplateClass = dataModel.createClass(NS_PARSER + "ExtractedTemplate");
+        OntClass extractedParamterClass = dataModel.createClass(NS_PARSER + "ExtractedParameter");
+
+        DatatypeProperty contentProperty = dataModel.createDatatypeProperty(NS_PARSER + "content");
+        DatatypeProperty hashProperty = dataModel.createDatatypeProperty(NS_PARSER + "hash");
+        ObjectProperty hasParameterProperty = dataModel.createObjectProperty(NS_PARSER + "hasParameter");
+        AnnotationProperty subjectProperty = dataModel.getAnnotationProperty("http://purl.org/dc/elements/1.1/subject");
+
+        DatatypeProperty classNameProperty = dataModel.createDatatypeProperty(NS_PARSER + "className");
+        DatatypeProperty propertyNameProperty = dataModel.createDatatypeProperty(NS_PARSER + "propertyName");
+        DatatypeProperty patternProperty = dataModel.createDatatypeProperty(NS_PARSER + "pattern");
+        DatatypeProperty isObjectProperty = dataModel.createDatatypeProperty(NS_PARSER + "isObject");
+        DatatypeProperty positionProperty = dataModel.createDatatypeProperty(NS_PARSER + "position");
+        DatatypeProperty typeProperty = dataModel.createDatatypeProperty(NS_PARSER + "type");
+
+        ExtendedIterator templateIndividuals = extractedTemplateClass.listInstances();
+        while (templateIndividuals.hasNext()) {
+            Individual templateIndividual = (Individual) templateIndividuals.next();
+            Template template = new Template(null, templateIndividual.getProperty(contentProperty).toString());
+            template.hash = templateIndividual.getProperty(hashProperty).getString();
+
+            Statement subj = templateIndividual.getProperty(subjectProperty);
+            if (subj != null)
+                template.subject = subj.getString();
+
+            templatesList.add(template);
+
+            StmtIterator hasChildStatementIterator = templateIndividual.listProperties(hasParameterProperty);
+            while (hasChildStatementIterator.hasNext()) {
+                Statement hasChildStatement = hasChildStatementIterator.next();
+                EntityPattern parameter = new EntityPattern();
+
+                Statement pos = hasChildStatement.getProperty(positionProperty);
+                if (pos != null)
+                    parameter.position = pos.getInt();
+
+                // Try because the property might not exists - if it is just a placeholder parameter
+                try {
+                    Statement type = hasChildStatement.getProperty(typeProperty);
+                    if (type != null)
+                        parameter.type = EnumPatternType.valueOf(type.getString());
+                } catch (Exception e) {
+                }
+
+                try {
+                    Statement className = hasChildStatement.getProperty(classNameProperty);
+                    if (className != null)
+                        parameter.className = className.getString();
+                } catch (Exception e) {
+                }
+
+                try {
+                    Statement propertyName = hasChildStatement.getProperty(propertyNameProperty);
+                    if (propertyName != null)
+                        parameter.propertyName = propertyName.getString();
+                } catch (Exception e) {
+                }
+
+                try {
+                    Statement isObject = hasChildStatement.getProperty(isObjectProperty);
+                    if (isObject != null)
+                        parameter.isObject = isObject.getBoolean();
+                } catch (Exception e) {
+                }
+
+                try {
+                    Statement pattern = hasChildStatement.getProperty(patternProperty);
+                    if (pattern != null)
+                        parameter.pattern = Pattern.compile(pattern.getString());
+                } catch (Exception e) {
+                }
+
+                template.parameterDict.add(parameter);
+            }
+        }
     }
 
     /**
@@ -125,12 +181,35 @@ public class Main {
      * @return
      */
     private static void annotateTemplates(List<EntityPattern> patterns, Iterable<CSVRecord> csvTemplates,
-                                                    List<LogLine> logLineList, OntModel dataModel, List<Template> templatesList) throws NoSuchAlgorithmException {
+                                          List<LogLine> logLineList, OntModel dataModel, List<Template> templatesList) throws NoSuchAlgorithmException {
+
+        boolean change = false;
 
         // Annotate template parameters
         for (CSVRecord csvTemplate : csvTemplates) {
-
             Template template = new Template(csvTemplate.get(0), csvTemplate.get(1));
+
+            final MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            final byte[] hashbytes = digest.digest(template.TemplateContent.getBytes(StandardCharsets.UTF_8));
+            String hash = new String(hashbytes);
+
+            template.hash = hash;
+
+            boolean exists = false;
+            for (Template existingTemplate : templatesList) {
+                if (existingTemplate.hash.equals(template.hash)) {
+                    exists = true;
+
+                    // Store mappings from templateId to Hash for this run
+                    templateIdMappings.put(template.TemplateId, existingTemplate.hash);
+                    break;
+                }
+            }
+
+            if (exists)
+                continue;
+
+            change = true;
 
             for (LogLine logline : logLineList) {
                 // look into logLine that contain certain patterns by EventId=TemplateId
@@ -141,24 +220,27 @@ public class Main {
                     processTemplateParameters(patterns, template, logline);
 
                     // Store templates in ontology if the template does not exist yet
-                    System.out.println(template.TemplateContent);
-                    final MessageDigest digest = MessageDigest.getInstance("SHA-256");
-                    final byte[] hashbytes = digest.digest(template.TemplateContent.getBytes(StandardCharsets.UTF_8));
-                    String hash = new String(hashbytes);
-
-                    if(dataModel.getIndividual(NS_INSTANCE + "Template_" + hash) == null) {
-                        createTemplateInstance(template, hash, dataModel); // add it to the ontology for later
-                        templatesList.add(template); // add it to the in memory list for this run
-                    }
+                    createTemplateInstance(template, dataModel); // add it to the ontology for later
+                    templatesList.add(template); // add it to the in memory list for this run
+                    templateIdMappings.put(template.TemplateId, template.hash);
 
                     break; // after finding the first template patterns, don't need to go further
                 }
             }
         }
-        //return templateList;
+
+        // Save templates to ontology
+//        if (change) {
+//            try {
+//                FileWriter out = new FileWriter(parserFilePath);// + DateTime.now().getMillis());
+//                dataModel.write(out, "Turtle");
+//            } catch (Exception e) {
+//                LOG.error("Error writing ontology: " + e.toString());
+//            }
+//        }
     }
 
-    private static void createTemplateInstance(Template template, String hash, OntModel dataModel) {
+    private static void createTemplateInstance(Template template, OntModel dataModel) {
         OntClass extractedTemplateClass = dataModel.createClass(NS_PARSER + "ExtractedTemplate");
         OntClass extractedParamterClass = dataModel.createClass(NS_PARSER + "ExtractedParameter");
 
@@ -166,25 +248,34 @@ public class Main {
         DatatypeProperty hashProperty = dataModel.createDatatypeProperty(NS_PARSER + "hash");
         ObjectProperty hasParameterProperty = dataModel.createObjectProperty(NS_PARSER + "hasParameter");
         DatatypeProperty positionProperty = dataModel.createDatatypeProperty(NS_PARSER + "position");
+
+        DatatypeProperty classNameProperty = dataModel.createDatatypeProperty(NS_PARSER + "className");
+        DatatypeProperty propertyNameProperty = dataModel.createDatatypeProperty(NS_PARSER + "propertyName");
+        DatatypeProperty patternProperty = dataModel.createDatatypeProperty(NS_PARSER + "pattern");
+        DatatypeProperty isObjectProperty = dataModel.createDatatypeProperty(NS_PARSER + "isObject");
         DatatypeProperty typeProperty = dataModel.createDatatypeProperty(NS_PARSER + "type");
         AnnotationProperty subjectProperty = dataModel.getAnnotationProperty("http://purl.org/dc/elements/1.1/subject");
 
         Individual templateIndividual = extractedTemplateClass.createIndividual(NS_INSTANCE + "Template_" + UUID.randomUUID());
         templateIndividual.addProperty(subjectProperty, "TestSubject");
-        templateIndividual.addProperty(hashProperty, hash);
+        templateIndividual.addProperty(hashProperty, template.hash);
         templateIndividual.addProperty(contentProperty, template.TemplateContent);
 
         int pos = 0;
-        for(EntityPattern param : template.parameterDict) {
+        for (EntityPattern param : template.parameterDict) {
             Individual paramIndividual = extractedParamterClass.createIndividual(NS_INSTANCE + "Parameter_" + UUID.randomUUID());
             paramIndividual.addProperty(positionProperty, String.valueOf(pos));
-
-            if(param != null){
-                paramIndividual.addProperty(typeProperty, param.className.toString());
-                templateIndividual.addProperty(hasParameterProperty, paramIndividual);
-            }
-
+            templateIndividual.addProperty(hasParameterProperty, paramIndividual);
             pos++;
+
+            if (param == null) // just a placeholder parameter for the position
+                continue;
+
+            paramIndividual.addProperty(typeProperty, param.type.toString());
+            paramIndividual.addProperty(classNameProperty, param.className);
+            paramIndividual.addProperty(propertyNameProperty, param.propertyName);
+            paramIndividual.addProperty(patternProperty, param.pattern.toString());
+            paramIndividual.addProperty(isObjectProperty, param.isObject.toString());
         }
     }
 
@@ -196,7 +287,6 @@ public class Main {
      * @param logLine
      */
     private static void processTemplateParameters(List<EntityPattern> patterns, Template template, LogLine logLine) {
-
         // take the parameter values and clean it up.
         String paramValues = logLine.ParameterList.substring(1, logLine.ParameterList.length() - 1);
         paramValues = paramValues.replaceAll("'", "");
@@ -244,7 +334,7 @@ public class Main {
 
     /**
      * (1) take each log line and produce instance of LogEntry in the KG;
-     *
+     * <p>
      * (2) based on the template parameters, add additional information on URL, HOST, USER, DOMAIN, and PORT
      *
      * @param logLines
@@ -270,11 +360,12 @@ public class Main {
 
             String[] parameterValues = paramValues.split(",");
             for (Template template : templatesList) {
-                if (template.TemplateId.equals(logline.EventId)) {
+                String loglineTemplateHash = templateIdMappings.get(logline.EventId); // Get hash from mapping
+                if (template.hash.equals(loglineTemplateHash)) {
                     for (int counter = 0; counter < parameterValues.length; counter++) {
                         String parameter = parameterValues[counter].trim();
                         EntityPattern targetType = template.parameterDict.get(counter);
-                        if (targetType == null)
+                        if (targetType == null || targetType.type == null) // Placeholder parameter (unknown) only has a position
                             continue; // if null, skip
 
                         LOG.info(String.format("Found: %s of Type %s", parameter, targetType.className));
@@ -300,7 +391,8 @@ public class Main {
         }
 
         try {
-            FileWriter out = new FileWriter("log_KG.ttl");// + DateTime.now().getMillis());
+            //FileWriter out = new FileWriter("log_KG.ttl");// + DateTime.now().getMillis());
+            FileWriter out = new FileWriter(parserFilePath);
             dataModel.write(out, "Turtle");
         } catch (Exception e) {
             LOG.error("Error writing ontology: " + e.toString());
@@ -309,7 +401,7 @@ public class Main {
 
     /**
      * (1) take each log line and produce instance of LogEntry in the KG;
-     *
+     * <p>
      * (2) add basic information into the LogEntry resource
      *
      * @param dataModel
@@ -327,8 +419,8 @@ public class Main {
         ObjectProperty sourceProperty = dataModel.createObjectProperty(NS_PARSER + "hasSource");
         DatatypeProperty sequenceProperty = dataModel.createDatatypeProperty(NS_PARSER + "sequence");
 
-        // Create instance for log line
-        Individual lineInstance = logLineClass.createIndividual(NS_INSTANCE + logline.LineId);
+        // Create instance for log line - how to name it that it is unique enough?
+        Individual lineInstance = logLineClass.createIndividual(NS_INSTANCE + "Logline_" + logline.LineId + "_SOURCE_" + logline.EventMonth + "_" + logline.EventDay + "_" + logline.EventTime);
 
         // Add basic properties of log line
         DatatypeProperty templateIdProperty = dataModel.createDatatypeProperty(NS_PARSER + "templateId");

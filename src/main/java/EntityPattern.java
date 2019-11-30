@@ -10,6 +10,11 @@ public class EntityPattern {
     public Boolean isObject;
     public Pattern pattern;
     public EnumPatternType type;
+    public int position;
+
+    public EntityPattern(){
+
+    }
 
     public EntityPattern(String className, String propertyName, Boolean isObject, Pattern pattern,
             EnumPatternType type) {
