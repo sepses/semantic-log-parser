@@ -13,6 +13,7 @@ import org.joda.time.DateTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.swing.text.html.parser.Entity;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
@@ -86,6 +87,8 @@ public class Main {
         try {
             annotateTemplates(patterns, templates, logLineList, dataModel, templatesList);
         } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        } catch (CloneNotSupportedException e) {
             e.printStackTrace();
         }
 
@@ -181,7 +184,7 @@ public class Main {
      * @return
      */
     private static void annotateTemplates(List<EntityPattern> patterns, Iterable<CSVRecord> csvTemplates,
-                                          List<LogLine> logLineList, OntModel dataModel, List<Template> templatesList) throws NoSuchAlgorithmException {
+                                          List<LogLine> logLineList, OntModel dataModel, List<Template> templatesList) throws NoSuchAlgorithmException, CloneNotSupportedException {
 
         boolean change = false;
 
@@ -215,7 +218,6 @@ public class Main {
                 // look into logLine that contain certain patterns by EventId=TemplateId
                 if (logline.EventId.equals(template.TemplateId)) {
                     LOG.info("Found template example: " + logline.EventId + ":" + logline.Content);
-                    // process template parameters
 
                     processTemplateParameters(patterns, template, logline);
 
@@ -251,9 +253,9 @@ public class Main {
 
         DatatypeProperty classNameProperty = dataModel.createDatatypeProperty(NS_PARSER + "className");
         DatatypeProperty propertyNameProperty = dataModel.createDatatypeProperty(NS_PARSER + "propertyName");
-        DatatypeProperty patternProperty = dataModel.createDatatypeProperty(NS_PARSER + "pattern");
+        //DatatypeProperty patternProperty = dataModel.createDatatypeProperty(NS_PARSER + "pattern");
         DatatypeProperty isObjectProperty = dataModel.createDatatypeProperty(NS_PARSER + "isObject");
-        DatatypeProperty typeProperty = dataModel.createDatatypeProperty(NS_PARSER + "type");
+        //DatatypeProperty typeProperty = dataModel.createDatatypeProperty(NS_PARSER + "type");
         AnnotationProperty subjectProperty = dataModel.getAnnotationProperty("http://purl.org/dc/elements/1.1/subject");
 
         Individual templateIndividual = extractedTemplateClass.createIndividual(NS_INSTANCE + "Template_" + UUID.randomUUID());
@@ -266,15 +268,16 @@ public class Main {
             Individual paramIndividual = extractedParamterClass.createIndividual(NS_INSTANCE + "Parameter_" + UUID.randomUUID());
             paramIndividual.addProperty(positionProperty, String.valueOf(pos));
             templateIndividual.addProperty(hasParameterProperty, paramIndividual);
+            param.position = pos;
             pos++;
 
-            if (param == null) // just a placeholder parameter for the position
+            if (param == null || param.type == null) // just a placeholder parameter for the position
                 continue;
 
-            paramIndividual.addProperty(typeProperty, param.type.toString());
+            //paramIndividual.addProperty(typeProperty, param.type.toString());
             paramIndividual.addProperty(classNameProperty, param.className);
             paramIndividual.addProperty(propertyNameProperty, param.propertyName);
-            paramIndividual.addProperty(patternProperty, param.pattern.toString());
+            //paramIndividual.addProperty(patternProperty, param.pattern.toString());
             paramIndividual.addProperty(isObjectProperty, param.isObject.toString());
         }
     }
@@ -286,7 +289,7 @@ public class Main {
      * @param template
      * @param logLine
      */
-    private static void processTemplateParameters(List<EntityPattern> patterns, Template template, LogLine logLine) {
+    private static void processTemplateParameters(List<EntityPattern> patterns, Template template, LogLine logLine) throws CloneNotSupportedException {
         // take the parameter values and clean it up.
         String paramValues = logLine.ParameterList.substring(1, logLine.ParameterList.length() - 1);
         paramValues = paramValues.replaceAll("'", "");
@@ -303,7 +306,7 @@ public class Main {
                         Matcher matcher = pattern.pattern.matcher(value);
                         if (matcher.find()) {
                             LOG.info("Found Parameter Regex: " + value + " of " + pattern.className);
-                            foundPattern = pattern;
+                            foundPattern = (EntityPattern) pattern.clone();
                             break;
                         }
                     } else if (pattern.type == EnumPatternType.LogLine) {
@@ -313,19 +316,22 @@ public class Main {
                             String tempValue = matcher.group(0);
                             if (tempValue.contains(value)) {
                                 LOG.info("Found Content Regex: " + value + " of " + pattern.className);
-                                foundPattern = pattern;
+                                foundPattern = (EntityPattern) pattern.clone();
+                                break;
                             }
                         }
-                    } else {
-                        // pattern type is not recognized
-                        LOG.error("Found unrecognized pattern type: " + pattern.type);
-                        template.parameterDict.add(null);
                     }
+//                    else {
+//                        // pattern type is not recognized
+//                        LOG.error("Found unrecognized pattern type: " + pattern.type);
+//                        template.parameterDict.add(null);
+//                    }
                 }
 
                 if (foundPattern == null) {
                     // pattern not found for certain values
                     LOG.warn("Value '" + value + "' doesn't match any patterns");
+                    foundPattern = new EntityPattern();
                 }
                 template.parameterDict.add(foundPattern);
             }
@@ -364,8 +370,20 @@ public class Main {
                 if (template.hash.equals(loglineTemplateHash)) {
                     for (int counter = 0; counter < parameterValues.length; counter++) {
                         String parameter = parameterValues[counter].trim();
-                        EntityPattern targetType = template.parameterDict.get(counter);
-                        if (targetType == null || targetType.type == null) // Placeholder parameter (unknown) only has a position
+
+                        EntityPattern targetType = null;//template.parameterDict.get(counter);
+
+                        Iterator<EntityPattern> paramPattern = template.parameterDict.iterator();
+
+                        while(paramPattern.hasNext()){
+                            EntityPattern currentPattern = paramPattern.next();
+                            if(currentPattern.position == counter) {
+                                targetType = currentPattern;
+                                break;
+                            }
+                        }
+
+                        if (targetType == null || targetType.className == null) // Placeholder parameter (unknown) only has a position
                             continue; // if null, skip
 
                         LOG.info(String.format("Found: %s of Type %s", parameter, targetType.className));

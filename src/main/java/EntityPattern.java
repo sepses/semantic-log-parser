@@ -3,7 +3,7 @@ import java.util.regex.Pattern;
 /**
  * Class representation of EntityPattern
  */
-public class EntityPattern {
+public class EntityPattern implements Cloneable {
 
     public String className;
     public String propertyName;
@@ -14,6 +14,10 @@ public class EntityPattern {
 
     public EntityPattern(){
 
+    }
+
+    public Object clone() throws CloneNotSupportedException {
+        return super.clone();
     }
 
     public EntityPattern(String className, String propertyName, Boolean isObject, Pattern pattern,
