@@ -41,8 +41,8 @@ public class Main {
     static String regexPort = "(port)(:|-|\\s)(\\d+)";
 
     // TODO: will be replaced by JAVA args later on
-    private static String logTemplate = "./input/OpenSSH_2k.log_templates.csv";
-    private static String logData = "./input/OpenSSH_2k.log_structured.csv";
+    private static String logTemplate = "./input/openSSH/OpenSSH_2k_A.log_templates.csv";
+    private static String logData = "./input/openSSH/OpenSSH_2k_A.log_structured.csv";
     private static String parserFilePath = "src/main/resources/parser.ttl";
 
     private static Map<String, String> templateIdMappings = new HashMap<>();
